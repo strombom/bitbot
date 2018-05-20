@@ -16,16 +16,29 @@ class Binance:
                     interval = BinanceClient.KLINE_INTERVAL_1MINUTE, 
                     limit = 1,
                     startTime = 0)
-
         first_kline = klines[0]
         open_time = first_kline[0] // 1000
         return open_time
 
-    def get_minute_data(self, symbol, base_symbol):
+    def get_minute_data(self, symbol, base_symbol, timestamp_start):
         binance_symbol = symbol + base_symbol
-        klines = self.client.get_historical_klines(binance_symbol, BinanceClient.KLINE_INTERVAL_1MINUTE, start_str = 0)
-        print(klines)
-        quit()
+        timestamp_start = timestamp_start * 1000
+        timestamp_end = timestamp_start + 1000 * 60 * 60 * 24 * 7
+        klines = self.client.get_historical_klines(symbol = binance_symbol, 
+                                                   interval = BinanceClient.KLINE_INTERVAL_1MINUTE, 
+                                                   start_str = timestamp_start,
+                                                   end_str = timestamp_end)
+        minute_data = []
+        for kline in klines:
+            timestamp = int(kline[0] / 1000)
+            price_high = kline[2]
+            price_low = kline[3]
+            volume = kline[5]
+            minute_data.append({'timestamp': timestamp,
+                                'price_high': price_high,
+                                'price_low': price_low,
+                                'volume': volume})
+        return minute_data
 
 binance = Binance()
 
@@ -36,6 +49,7 @@ class TokenDB:
         conn = sqlite3.connect(self.filename)
         c = conn.cursor()
         c.execute('CREATE TABLE IF NOT EXISTS tokens (trading_symbol text, base_symbol text, timestamp_first INTEGER, timestamp_last INTEGER)')
+        c.execute('CREATE TABLE IF NOT EXISTS trade_data (trading_symbol text, base_symbol text, timestamp INTEGER, price_high REAL, price_low REAL, volume REAL)')
         conn.commit()
         conn.close()
 
@@ -62,16 +76,31 @@ class TokenDB:
         c.execute('UPDATE tokens SET timestamp_first=?, timestamp_last=? WHERE trading_symbol=? AND base_symbol=?', (first_timestamp, first_timestamp, symbol, base_symbol,))
         conn.commit()
         conn.close()
-        print("update_token", first_timestamp)
-        print((first_timestamp, symbol, base_symbol,))
 
-    def update_token(self, symbol, base_symbol):
-        pass
+    def update_token(self, symbol, base_symbol, timestamp_start):
+        conn = sqlite3.connect(self.filename)
+        timestamp_last = None
+        minute_data = binance.get_minute_data(symbol, base_symbol, timestamp_start)
+        if len(minute_data) == 0:
+            return
+        print("Appending data (", symbol, base_symbol, ")", timestamp_start, len(minute_data))
+        c = conn.cursor()
+        for data in minute_data:
+            timestamp_last = data['timestamp']
+            c.execute("INSERT INTO trade_data VALUES (?,?,?,?,?,?)", (symbol, 
+                                                                     base_symbol,
+                                                                     data['timestamp'],
+                                                                     data['price_high'],
+                                                                     data['price_low'],
+                                                                     data['volume']))
+        c.execute('UPDATE tokens SET timestamp_last=? WHERE trading_symbol=? AND base_symbol=?', (timestamp_last, symbol, base_symbol))
+        conn.commit()
+        conn.close()
 
 token_db = TokenDB('tokens.db')
 
 while True:
-    timeout = time.time() + 5
+    timeout = time.time() + 2
 
     symbols = token_db.get_symbols('USDT')
     print("---symbols---")
@@ -79,10 +108,16 @@ while True:
         symbol = symbol[0]
         timestamp_first, timestamp_last = token_db.get_timestamps(symbol, 'USDT')
 
+        print (timestamp_first, timestamp_last)
+
         if timestamp_first is None:
             token_db.init_token(symbol, 'USDT')
         else:
-            token_db.update_token(symbol, 'USDT')
+            timestamp_start = timestamp_last
+            if timestamp_start != timestamp_first:
+                timestamp_start += 60
+
+            token_db.update_token(symbol, 'USDT', timestamp_start)
 
         #if timestamp_first
 

@@ -101,34 +101,28 @@ token_db = TokenDB('tokens.db')
 
 while True:
     timeout = time.time() + 2
-
     symbols = token_db.get_symbols('USDT')
-    print("---symbols---")
     for symbol in symbols:
         symbol = symbol[0]
         timestamp_first, timestamp_last = token_db.get_timestamps(symbol, 'USDT')
 
-        print (timestamp_first, timestamp_last)
-
         if timestamp_first is None:
-            token_db.init_token(symbol, 'USDT')
+            for retry in range(3):
+                try:
+                    token_db.init_token(symbol, 'USDT')
+                    break
+                except:
+                    pass
         else:
             timestamp_start = timestamp_last
             if timestamp_start != timestamp_first:
                 timestamp_start += 60
-
-            token_db.update_token(symbol, 'USDT', timestamp_start)
-
-        #if timestamp_first
-
-        #print(symbol, timestamp_first, timestamp_last)
-
-    #quit()
-
-    #timestamp_now = int((time.time()) // 60 * 60)
-
-    #print(timestamp_now)
-    #quit()
+            for retry in range(3):
+                try:
+                    token_db.update_token(symbol, 'USDT', timestamp_start)
+                    break
+                except:
+                    pass
 
     while time.time() < timeout:
         time.sleep(1)

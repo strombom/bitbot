@@ -3,3 +3,4 @@ database/binance_keys.py
 database/__pycache__/binance_keys.cpython-36.pyc
 *.db
 database/tokens.db
+*.pyc
